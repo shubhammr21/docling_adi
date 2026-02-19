@@ -474,3 +474,493 @@ def test_pipeline_uses_azure_di_ocr(sample_pdf: str) -> None:
     assert "Hello" in text or "Azure" in text, (
         f"Expected OCR text in output but got:\n{text}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Helper: build an enabled model instance for unit tests
+# --------------------------------------------------------------------------- #
+
+
+def _make_model(
+    endpoint: str = "https://mock.cognitiveservices.azure.com/",
+    api_key: str = "mock-key",
+    model_id: str = "prebuilt-read",
+    locale: str | None = None,
+    enabled: bool = True,
+):
+    from docling.datamodel.accelerator_options import AcceleratorOptions
+
+    from docling_adi.plugin import AzureDocIntelOcrModel, AzureDocIntelOcrOptions
+
+    opts = AzureDocIntelOcrOptions(
+        endpoint=endpoint,
+        api_key=api_key,
+        model_id=model_id,
+        locale=locale,
+    )
+    return AzureDocIntelOcrModel(
+        enabled=enabled,
+        artifacts_path=None,
+        options=opts,
+        accelerator_options=AcceleratorOptions(),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Tests – _analyse_image (word-level path)
+# --------------------------------------------------------------------------- #
+
+
+def test_analyse_image_returns_word_cells() -> None:
+    """Test _analyse_image returns one TextCell per word."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    cells = model._analyse_image(img, rect)
+    # MockAdiPage has 4 words
+    assert len(cells) == 4
+    texts = [c.text for c in cells]
+    assert texts == ["Hello", "from", "Azure", "DI"]
+    for c in cells:
+        assert c.from_ocr is True
+        assert c.confidence > 0
+
+
+def test_analyse_image_lines_fallback() -> None:
+    """When words is empty, _analyse_image falls back to lines."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    # Patch the mock poller to return a page with no words, only lines
+    class PageNoWords:
+        width = 8.5
+        height = 11.0
+        words = []
+        lines = [MockLine("Full line text")]
+
+    class ResultNoWords:
+        pages = [PageNoWords()]
+
+    class PollerNoWords:
+        def result(self):
+            return ResultNoWords()
+
+    model.client.begin_analyze_document = lambda **kw: PollerNoWords()
+
+    cells = model._analyse_image(img, rect)
+    assert len(cells) == 1
+    assert cells[0].text == "Full line text"
+    assert cells[0].confidence == 1.0
+
+
+def test_analyse_image_no_pages() -> None:
+    """When Azure DI returns no pages, _analyse_image returns []."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    class EmptyResult:
+        pages = []
+
+    class EmptyPoller:
+        def result(self):
+            return EmptyResult()
+
+    model.client.begin_analyze_document = lambda **kw: EmptyPoller()
+
+    cells = model._analyse_image(img, rect)
+    assert cells == []
+
+
+def test_analyse_image_zero_dimensions() -> None:
+    """When ADI page has zero width/height, _analyse_image returns []."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    class ZeroPage:
+        width = 0
+        height = 0
+        words = []
+        lines = []
+
+    class ZeroResult:
+        pages = [ZeroPage()]
+
+    class ZeroPoller:
+        def result(self):
+            return ZeroResult()
+
+    model.client.begin_analyze_document = lambda **kw: ZeroPoller()
+
+    cells = model._analyse_image(img, rect)
+    assert cells == []
+
+
+def test_analyse_image_api_exception() -> None:
+    """When the Azure API raises, _analyse_image returns [] gracefully."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    def raise_error(**kw):
+        raise RuntimeError("Service unavailable")
+
+    model.client.begin_analyze_document = raise_error
+
+    cells = model._analyse_image(img, rect)
+    assert cells == []
+
+
+def test_analyse_image_skips_blank_words() -> None:
+    """Words with empty/whitespace content are skipped."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    class BlankWordPage:
+        width = 8.5
+        height = 11.0
+        words = [
+            MockWord("", 0.9),
+            MockWord("   ", 0.9),
+            MockWord("valid", 0.95),
+        ]
+        lines = []
+
+    class BlankResult:
+        pages = [BlankWordPage()]
+
+    class BlankPoller:
+        def result(self):
+            return BlankResult()
+
+    model.client.begin_analyze_document = lambda **kw: BlankPoller()
+
+    cells = model._analyse_image(img, rect)
+    assert len(cells) == 1
+    assert cells[0].text == "valid"
+
+
+def test_analyse_image_none_confidence_defaults_to_zero() -> None:
+    """A word with confidence=None gets confidence 0.0."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    class NoneConfPage:
+        width = 8.5
+        height = 11.0
+        words = [MockWord("word", None)]
+        lines = []
+
+    class NoneConfResult:
+        pages = [NoneConfPage()]
+
+    class NoneConfPoller:
+        def result(self):
+            return NoneConfResult()
+
+    model.client.begin_analyze_document = lambda **kw: NoneConfPoller()
+
+    cells = model._analyse_image(img, rect)
+    assert len(cells) == 1
+    assert cells[0].confidence == 0.0
+
+
+def test_analyse_image_word_with_bad_polygon() -> None:
+    """A word whose polygon is too short is skipped."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    class BadPolyPage:
+        width = 8.5
+        height = 11.0
+        words = [MockWord("bad", 0.9, [1.0])]  # polygon too short
+        lines = []
+
+    class BadPolyResult:
+        pages = [BadPolyPage()]
+
+    class BadPolyPoller:
+        def result(self):
+            return BadPolyResult()
+
+    model.client.begin_analyze_document = lambda **kw: BadPolyPoller()
+
+    cells = model._analyse_image(img, rect)
+    assert cells == []
+
+
+def test_analyse_image_skips_blank_lines() -> None:
+    """Lines with empty content are skipped in the fallback path."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    class BlankLinePage:
+        width = 8.5
+        height = 11.0
+        words = []
+        lines = [MockLine(""), MockLine("   "), MockLine("real line")]
+
+    class BlankLineResult:
+        pages = [BlankLinePage()]
+
+    class BlankLinePoller:
+        def result(self):
+            return BlankLineResult()
+
+    model.client.begin_analyze_document = lambda **kw: BlankLinePoller()
+
+    cells = model._analyse_image(img, rect)
+    assert len(cells) == 1
+    assert cells[0].text == "real line"
+
+
+def test_analyse_image_line_with_bad_polygon() -> None:
+    """A line whose polygon is too short is skipped."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    class BadLinePolyPage:
+        width = 8.5
+        height = 11.0
+        words = []
+        lines = [MockLine("text")]
+
+    # Override the polygon to be too short
+    BadLinePolyPage.lines[0].polygon = [1.0]
+
+    class BadLinePolyResult:
+        pages = [BadLinePolyPage()]
+
+    class BadLinePolyPoller:
+        def result(self):
+            return BadLinePolyResult()
+
+    model.client.begin_analyze_document = lambda **kw: BadLinePolyPoller()
+
+    cells = model._analyse_image(img, rect)
+    assert cells == []
+
+
+def test_analyse_image_with_locale() -> None:
+    """When locale is set, it is passed through to the API call."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model(locale="en-US")
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    captured_kwargs = {}
+
+    class CapturingPoller:
+        def result(self):
+            return MockAnalyzeResult()
+
+    def capturing_analyze(**kw):
+        captured_kwargs.update(kw)
+        return CapturingPoller()
+
+    model.client.begin_analyze_document = capturing_analyze
+
+    cells = model._analyse_image(img, rect)
+    assert len(cells) == 4
+    assert captured_kwargs.get("locale") == "en-US"
+
+
+def test_analyse_image_without_locale() -> None:
+    """When locale is None, it is NOT passed to the API call."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model(locale=None)
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    img = Image.new("RGB", (100, 100), color="white")
+
+    captured_kwargs = {}
+
+    class CapturingPoller:
+        def result(self):
+            return MockAnalyzeResult()
+
+    def capturing_analyze(**kw):
+        captured_kwargs.update(kw)
+        return CapturingPoller()
+
+    model.client.begin_analyze_document = capturing_analyze
+
+    model._analyse_image(img, rect)
+    assert "locale" not in captured_kwargs
+
+
+# --------------------------------------------------------------------------- #
+# Tests – __call__ method edge cases
+# --------------------------------------------------------------------------- #
+
+
+def test_call_disabled_yields_pages_unchanged() -> None:
+    """A disabled model yields pages without processing."""
+    model = _make_model(enabled=False)
+
+    page1 = MagicMock()
+    page2 = MagicMock()
+    conv_res = MagicMock()
+
+    result = list(model(conv_res, [page1, page2]))
+    assert result == [page1, page2]
+
+
+def test_call_invalid_backend_yields_page() -> None:
+    """A page with no backend is yielded unchanged."""
+    model = _make_model()
+
+    page = MagicMock()
+    page._backend = None
+    conv_res = MagicMock()
+
+    result = list(model(conv_res, [page]))
+    assert result == [page]
+
+
+def test_call_invalid_backend_is_valid_false() -> None:
+    """A page whose backend.is_valid() is False is yielded unchanged."""
+    model = _make_model()
+
+    page = MagicMock()
+    page._backend.is_valid.return_value = False
+    conv_res = MagicMock()
+
+    result = list(model(conv_res, [page]))
+    assert result == [page]
+
+
+def test_call_zero_area_rect_skipped() -> None:
+    """A zero-area OCR rect is skipped (no API call)."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+
+    page = MagicMock()
+    page._backend.is_valid.return_value = True
+
+    # get_ocr_rects returns a zero-area rect
+    zero_rect = BoundingBox.from_tuple(coord=(10, 10, 10, 10), origin="TOPLEFT")
+    model.get_ocr_rects = MagicMock(return_value=[zero_rect])
+    model.post_process_cells = MagicMock()
+
+    conv_res = MagicMock()
+
+    result = list(model(conv_res, [page]))
+    assert len(result) == 1
+    # No call to get_page_image since rect area is 0
+    page._backend.get_page_image.assert_not_called()
+
+
+def test_call_normal_flow_processes_rect() -> None:
+    """Normal flow: valid page, non-zero rect, calls _analyse_image."""
+    from docling_core.types.doc import BoundingBox
+    from PIL import Image
+
+    model = _make_model()
+
+    page = MagicMock()
+    page._backend.is_valid.return_value = True
+    page._backend.get_page_image.return_value = Image.new("RGB", (100, 100))
+
+    rect = BoundingBox.from_tuple(coord=(0, 0, 612, 792), origin="TOPLEFT")
+    model.get_ocr_rects = MagicMock(return_value=[rect])
+    model.post_process_cells = MagicMock()
+
+    conv_res = MagicMock()
+
+    result = list(model(conv_res, [page]))
+    assert len(result) == 1
+    page._backend.get_page_image.assert_called_once()
+    model.post_process_cells.assert_called_once()
+    # Verify cells were passed (4 words from mock)
+    cells_arg = model.post_process_cells.call_args[0][0]
+    assert len(cells_arg) == 4
+
+
+# --------------------------------------------------------------------------- #
+# Tests – DefaultAzureCredential fallback
+# --------------------------------------------------------------------------- #
+
+
+def test_model_uses_default_credential_when_no_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When no API key is available, DefaultAzureCredential is used."""
+    monkeypatch.delenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", raising=False)
+
+    from docling.datamodel.accelerator_options import AcceleratorOptions
+
+    from docling_adi.plugin import AzureDocIntelOcrModel, AzureDocIntelOcrOptions
+
+    opts = AzureDocIntelOcrOptions(
+        endpoint="https://mock.cognitiveservices.azure.com/",
+        # no api_key
+    )
+    accel = AcceleratorOptions()
+
+    model = AzureDocIntelOcrModel(
+        enabled=True,
+        artifacts_path=None,
+        options=opts,
+        accelerator_options=accel,
+    )
+    assert model.enabled
+    assert hasattr(model, "client")
+
+
+# --------------------------------------------------------------------------- #
+# Tests – download_models default path
+# --------------------------------------------------------------------------- #
+
+
+def test_download_models_default_path() -> None:
+    """download_models with no args uses settings.cache_dir."""
+    from docling_adi.plugin import AzureDocIntelOcrModel
+
+    out = AzureDocIntelOcrModel.download_models()
+    assert out.exists()
+    assert out.is_dir()
+    assert "AzureDocIntel" in str(out)

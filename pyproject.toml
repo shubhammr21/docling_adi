@@ -24,6 +24,7 @@ dev = [
     "reportlab>=4.4.4",
     "python-dotenv>=1.1.0",
     "docling-adi",
+    "pytest-cov>=7.0.0",
 ]
 
 [build-system]
@@ -85,3 +86,52 @@ max-complexity = 30
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
+
+# --------------------------------------------------------------------------- #
+# Pytest
+# --------------------------------------------------------------------------- #
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+  "--cov=docling_adi",
+  "--cov-report=term-missing",
+  "--cov-report=html:htmlcov",
+  "--cov-report=xml:coverage.xml",
+  "--cov-config=pyproject.toml",
+  "-v",
+]
+
+# --------------------------------------------------------------------------- #
+# Coverage
+# --------------------------------------------------------------------------- #
+[tool.coverage.run]
+source = ["docling_adi"]
+branch = true
+parallel = true
+omit = [
+  "tests/*",
+  "examples/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+precision = 2
+fail_under = 80
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "if __name__ == .__main__.",
+  "if TYPE_CHECKING:",
+  "raise ImportError",
+  "raise NotImplementedError",
+  "pass",
+  "\\.\\.\\.",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+title = "docling-adi coverage"
+
+[tool.coverage.xml]
+output = "coverage.xml"
