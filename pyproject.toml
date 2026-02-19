@@ -1,0 +1,87 @@
+[project]
+name = "docling-adi"
+version = "0.1.0"
+description = "Docling plugin for Azure Document Intelligence OCR"
+readme = "README.md"
+authors = [
+  { name = "Shubham Maurya" }
+]
+keywords = ["docling", "ocr", "azure", "document-intelligence", "plugin"]
+requires-python = ">=3.11"
+dependencies = [
+    "docling>=2.60.0",
+    "azure-ai-documentintelligence>=1.0.0",
+    "azure-identity>=1.19.0",
+]
+
+[project.entry-points.docling]
+"azure-di" = "docling_adi.plugin"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.5.0",
+    "reportlab>=4.4.4",
+    "python-dotenv>=1.1.0",
+    "docling-adi",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+docling-adi = { workspace = true }
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+respect-gitignore = true
+
+[tool.ruff.format]
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint]
+select = [
+  "B",    # flake8-bugbear
+  "C",    # flake8-comprehensions
+  "C9",   # mccabe
+  "E",    # pycodestyle errors
+  "F",    # pyflakes
+  "I",    # isort
+  "PIE",  # pie
+  "PTH",  # pathlib
+  "Q",    # flake8-quotes
+  "RET",  # return
+  "RUF",  # ruff-specific
+  "SIM",  # simplify
+  "S307", # eval
+  "T20",  # disallow print statements
+  "W",    # pycodestyle warnings
+  "ASYNC",# async
+  "UP",   # pyupgrade
+]
+
+ignore = [
+  "C408",   # Unnecessary `dict()` call
+  "E501",   # Line too long, handled by formatter
+  "D107",   # Missing docstring in __init__
+  "F401",   # imported but unused
+  "F811",   # redefinition of the same function
+  "PL",     # Pylint
+  "RUF012", # Mutable Class Attributes
+  "UP006",  # List vs list
+  "UP007",  # Option and Union
+  "UP035",  # typing.Set deprecated
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402", "F401"]
+"tests/*.py" = ["ASYNC", "T20"]
+"examples/*.py" = ["T20"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 30
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
