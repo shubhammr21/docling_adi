@@ -1,0 +1,150 @@
+# ---------------------------------------------------------------------------
+# Release workflow
+# ---------------------------------------------------------------------------
+# Triggered on every push to `main`.
+#
+# 1. Lint + test (gate)
+# 2. python-semantic-release decides if a new version is needed based on
+#    Conventional Commits (feat → minor, fix → patch, BREAKING CHANGE → major)
+# 3. If a release is created:
+#    a. Version bump + CHANGELOG.md update committed to `main`
+#    b. Git tag pushed
+#    c. GitHub Release published
+#    d. Wheel + sdist built and uploaded to PyPI
+# ---------------------------------------------------------------------------
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write      # push version commits + tags
+  id-token: write      # PyPI trusted publisher (OIDC)
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false   # never cancel a release mid-flight
+
+jobs:
+  # ======================================================================= #
+  # Gate — must pass before any release activity
+  # ======================================================================= #
+  quality:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Run tests with coverage
+        run: uv run pytest
+
+  # ======================================================================= #
+  # Semantic Release — version bump, changelog, tag, GitHub Release
+  # ======================================================================= #
+  release:
+    name: Semantic Release
+    needs: quality
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.semrel.outputs.released }}
+      version:  ${{ steps.semrel.outputs.version }}
+      tag:      ${{ steps.semrel.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # full history for commit analysis
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install python-semantic-release
+        run: pip install python-semantic-release
+
+      - name: Run semantic-release version
+        id: semrel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Attempt a release; semantic-release exits 0 even when no release is made
+          OUTPUT=$(semantic-release version 2>&1) || true
+          echo "$OUTPUT"
+
+          # Detect whether a release was actually published
+          if echo "$OUTPUT" | grep -qE "^\[semantic_release\].*bumped"; then
+            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            VERSION="${TAG#v}"
+            echo "released=true"   >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "version="       >> "$GITHUB_OUTPUT"
+            echo "tag="           >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish GitHub Release
+        if: steps.semrel.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: semantic-release publish
+
+  # ======================================================================= #
+  # Build & Publish to PyPI
+  # ======================================================================= #
+  pypi:
+    name: Publish to PyPI
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/docling-adi/${{ needs.release.outputs.version }}/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel & sdist
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Uses OIDC trusted publisher — no API token needed if configured
+          # Fallback: set PYPI_API_TOKEN in repository secrets and uncomment:
+          # password: ${{ secrets.PYPI_API_TOKEN }}
+          print-hash: true

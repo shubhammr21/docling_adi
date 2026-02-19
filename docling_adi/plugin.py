@@ -1,3 +1,33 @@
+"""Azure Document Intelligence OCR plugin for Docling.
+
+This plugin integrates Azure Document Intelligence (formerly Azure Form
+Recognizer) as an OCR backend for the Docling document-conversion framework.
+
+Acknowledgements
+----------------
+This plugin is **directly based on** `docling_surya
+<https://github.com/harrykhh/docling_surya>`_ by **Harry Ho (@harrykhh)**,
+the first community Docling OCR plugin (GPL-3.0).
+
+The following elements were adapted from that project:
+
+* **Plugin architecture** — ``BaseOcrModel`` subclass, ``OcrOptions`` with a
+  ``ClassVar[kind]`` discriminator, and the ``ocr_engines()`` factory function
+  that Docling discovers via ``[project.entry-points.docling]``.
+* **``__call__`` pipeline** — page iteration → ``get_ocr_rects`` → crop image
+  at ``self.scale`` → run OCR engine → map coordinates back to page-point
+  space → ``post_process_cells``.
+* **Coordinate mapping** — proportional bounding-box conversion from the OCR
+  engine's coordinate system onto the Docling crop rect.
+* **Project scaffolding** — ``pyproject.toml`` entry-point layout,
+  ``__init__.py`` exports, example script, and test suite structure with
+  mocked OCR predictors and ``reportlab``-generated sample PDFs.
+
+Reference repository : https://github.com/harrykhh/docling_surya
+Reference PyPI       : https://pypi.org/project/docling-surya/
+Reference author     : Harry Ho — https://github.com/harrykhh
+"""
+
 import io
 import logging
 import os
@@ -5,8 +35,6 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import ClassVar, Literal, Optional, Type
 
-from docling_core.types.doc import BoundingBox, CoordOrigin
-from docling_core.types.doc.page import BoundingRectangle, TextCell
 from docling.datamodel.accelerator_options import AcceleratorOptions
 from docling.datamodel.base_models import Page
 from docling.datamodel.document import ConversionResult
@@ -14,6 +42,8 @@ from docling.datamodel.pipeline_options import OcrOptions
 from docling.datamodel.settings import settings
 from docling.models.base_ocr_model import BaseOcrModel
 from docling.utils.profiling import TimeRecorder
+from docling_core.types.doc import BoundingBox, CoordOrigin
+from docling_core.types.doc.page import BoundingRectangle, TextCell
 
 _log = logging.getLogger(__name__)
 
@@ -79,9 +109,8 @@ class AzureDocIntelOcrModel(BaseOcrModel):
                     "`pip install azure-ai-documentintelligence`."
                 ) from exc
 
-            endpoint = (
-                options.endpoint
-                or os.environ.get("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
+            endpoint = options.endpoint or os.environ.get(
+                "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT"
             )
             if not endpoint:
                 raise ValueError(
@@ -90,9 +119,8 @@ class AzureDocIntelOcrModel(BaseOcrModel):
                     "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT environment variable."
                 )
 
-            api_key = (
-                options.api_key
-                or os.environ.get("AZURE_DOCUMENT_INTELLIGENCE_KEY")
+            api_key = options.api_key or os.environ.get(
+                "AZURE_DOCUMENT_INTELLIGENCE_KEY"
             )
 
             if api_key:
@@ -151,9 +179,7 @@ class AzureDocIntelOcrModel(BaseOcrModel):
                     if rect.area() == 0:
                         continue
 
-                    img = page._backend.get_page_image(
-                        scale=self.scale, cropbox=rect
-                    )
+                    img = page._backend.get_page_image(scale=self.scale, cropbox=rect)
 
                     cells = self._analyse_image(img, rect)
                     del img
@@ -201,9 +227,7 @@ class AzureDocIntelOcrModel(BaseOcrModel):
             )
             result = poller.result()
         except Exception:
-            _log.exception(
-                "Azure Document Intelligence call failed for rect %s", rect
-            )
+            _log.exception("Azure Document Intelligence call failed for rect %s", rect)
             return []
 
         if not result.pages:
@@ -212,7 +236,7 @@ class AzureDocIntelOcrModel(BaseOcrModel):
 
         # We sent a single image → expect exactly one page back
         adi_page = result.pages[0]
-        adi_w = adi_page.width   # in page.unit (usually inches)
+        adi_w = adi_page.width  # in page.unit (usually inches)
         adi_h = adi_page.height
 
         if not adi_w or not adi_h:

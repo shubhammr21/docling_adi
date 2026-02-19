@@ -1,6 +1,16 @@
 """
 Tests for docling-adi (Azure Document Intelligence) OCR plugin.
 Uses mocks to avoid real Azure API calls or credentials.
+
+Based on: tests/test_surya_ocr.py from docling_surya
+  Repository : https://github.com/harrykhh/docling_surya
+  Author     : Harry Ho (@harrykhh)
+  License    : GPL-3.0
+
+The test architecture — mock predictor classes, monkeypatch fixtures for the
+OCR backend imports, entry-point discovery test, options/model initialisation
+tests, reportlab-generated sample PDFs, and the end-to-end pipeline test
+pattern — is directly adapted from that reference test suite.
 """
 
 from __future__ import annotations
@@ -23,6 +33,7 @@ if TYPE_CHECKING:
 # --------------------------------------------------------------------------- #
 # Mock Azure SDK objects
 # --------------------------------------------------------------------------- #
+
 
 class MockWord:
     """Mock Azure DI word."""
@@ -150,7 +161,7 @@ def sample_pdf(tmp_path: Path) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Tests – Plugin discovery & factory
+# Tests - Plugin discovery & factory
 # --------------------------------------------------------------------------- #
 
 
@@ -176,7 +187,7 @@ def test_ocr_engines_factory() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Tests – Options
+# Tests - Options
 # --------------------------------------------------------------------------- #
 
 
@@ -221,8 +232,9 @@ def test_options_custom_values() -> None:
 
 def test_options_forbids_extra_fields() -> None:
     """Test that extra fields are rejected (extra='forbid')."""
-    from docling_adi.plugin import AzureDocIntelOcrOptions
     from pydantic import ValidationError
+
+    from docling_adi.plugin import AzureDocIntelOcrOptions
 
     with pytest.raises(ValidationError):
         AzureDocIntelOcrOptions(unknown_field="oops")
@@ -237,7 +249,7 @@ def test_options_kind_on_instance() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Tests – Model initialisation
+# Tests - Model initialisation
 # --------------------------------------------------------------------------- #
 
 
@@ -332,7 +344,7 @@ def test_get_options_type() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Tests – download_models (no-op for cloud service)
+# Tests - download_models (no-op for cloud service)
 # --------------------------------------------------------------------------- #
 
 
@@ -346,7 +358,7 @@ def test_download_models_creates_directory(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Tests – Coordinate mapping
+# Tests - Coordinate mapping
 # --------------------------------------------------------------------------- #
 
 
@@ -356,13 +368,13 @@ def test_polygon_to_page_bbox_basic() -> None:
 
     from docling_adi.plugin import AzureDocIntelOcrModel
 
-    # Fake rect: entire page at 72 dpi → 612×792 points (8.5×11 inches)
+    # Fake rect: entire page at 72 dpi -> 612x792 points (8.5x11 inches)
     rect = BoundingBox.from_tuple(
         coord=(0.0, 0.0, 612.0, 792.0),
         origin="TOPLEFT",
     )
 
-    # ADI page is 8.5×11 inches, polygon at (1, 1) to (2, 2) inches
+    # ADI page is 8.5x11 inches, polygon at (1, 1) to (2, 2) inches
     polygon = [1.0, 1.0, 2.0, 1.0, 2.0, 2.0, 1.0, 2.0]
 
     bbox = AzureDocIntelOcrModel._polygon_to_page_bbox(
@@ -396,7 +408,7 @@ def test_polygon_to_page_bbox_with_offset() -> None:
         origin="TOPLEFT",
     )
 
-    # ADI coord in a 8.5×11 page, polygon at origin (0,0) → (8.5,11)
+    # ADI coord in a 8.5x11 page, polygon at origin (0,0) -> (8.5,11)
     polygon = [0.0, 0.0, 8.5, 0.0, 8.5, 11.0, 0.0, 11.0]
 
     bbox = AzureDocIntelOcrModel._polygon_to_page_bbox(
@@ -442,7 +454,7 @@ def test_polygon_to_page_bbox_short_polygon() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Tests – End-to-end pipeline
+# Tests - End-to-end pipeline
 # --------------------------------------------------------------------------- #
 
 
@@ -507,7 +519,7 @@ def _make_model(
 
 
 # --------------------------------------------------------------------------- #
-# Tests – _analyse_image (word-level path)
+# Tests - _analyse_image (word-level path)
 # --------------------------------------------------------------------------- #
 
 
@@ -831,7 +843,7 @@ def test_analyse_image_without_locale() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Tests – __call__ method edge cases
+# Tests - __call__ method edge cases
 # --------------------------------------------------------------------------- #
 
 
@@ -921,7 +933,7 @@ def test_call_normal_flow_processes_rect() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Tests – DefaultAzureCredential fallback
+# Tests - DefaultAzureCredential fallback
 # --------------------------------------------------------------------------- #
 
 
@@ -952,7 +964,7 @@ def test_model_uses_default_credential_when_no_key(
 
 
 # --------------------------------------------------------------------------- #
-# Tests – download_models default path
+# Tests - download_models default path
 # --------------------------------------------------------------------------- #
 
 

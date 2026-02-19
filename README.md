@@ -4,6 +4,8 @@
 
 Azure Document Intelligence is a cloud-based AI service that extracts text, structure, and data from documents with high accuracy — including scanned PDFs, images, handwritten text, and complex layouts.
 
+> **Based on** [`docling_surya`](https://github.com/harrykhh/docling_surya) by [Harry Ho](https://github.com/harrykhh) — the first community Docling OCR plugin, which demonstrated the plugin architecture pattern for integrating third-party OCR engines into Docling. The project structure, entry-point registration, `BaseOcrModel` subclass design, coordinate-mapping approach, test strategy, and overall plugin scaffolding in this repository are directly derived from that work.
+
 ## Features
 
 - **Cloud-based OCR** — no local GPU or model downloads required.
@@ -189,7 +191,26 @@ uv build
 uv pip install dist/docling_adi-*.whl
 ```
 
+## Acknowledgements
+
+This plugin was built using [`docling_surya`](https://github.com/harrykhh/docling_surya) by **[Harry Ho (@harrykhh)](https://github.com/harrykhh)** as the reference implementation. Specifically, the following were adapted from that project:
+
+| What | How it was used |
+|---|---|
+| **Plugin architecture** | `BaseOcrModel` subclass pattern, `OcrOptions` with `ClassVar[kind]`, and the `ocr_engines()` factory function |
+| **Entry-point registration** | `[project.entry-points.docling]` mechanism for Docling's `allow_external_plugins` discovery |
+| **`__call__` pipeline** | Page iteration → `get_ocr_rects` → crop image → run OCR → map coordinates → `post_process_cells` flow |
+| **Coordinate mapping** | Proportional bounding-box mapping from OCR-engine coordinates back to Docling page-point space |
+| **Project structure** | `pyproject.toml` layout, `__init__.py` exports, examples directory, and test suite with mocked OCR backend |
+| **Test patterns** | Mock predictor classes, `monkeypatch` fixtures, entry-point discovery test, and end-to-end pipeline test with `reportlab`-generated PDFs |
+
+Without the `docling_surya` reference, figuring out Docling's undocumented plugin contract would have been significantly harder. Full credit and thanks to Harry Ho for open-sourcing that work.
+
+- 📦 **Reference plugin**: [harrykhh/docling_surya](https://github.com/harrykhh/docling_surya) — GPL-3.0
+- 📦 **PyPI**: [docling-surya](https://pypi.org/project/docling-surya/)
+
 ## License & Attribution
 
+- **Reference plugin**: [`docling_surya`](https://github.com/harrykhh/docling_surya) by [Harry Ho](https://github.com/harrykhh) — GPL-3.0 — the foundational reference for this plugin's architecture
 - **Azure Document Intelligence**: [Microsoft Azure Cognitive Services](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/)
 - **Docling**: [DS4SD/docling](https://github.com/DS4SD/docling)

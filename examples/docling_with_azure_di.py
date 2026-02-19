@@ -1,5 +1,15 @@
 # Use Azure Document Intelligence with Docling to OCR a PDF and print Markdown.
 #
+# Based on: examples/docling_with_custom_models.py from docling_surya
+#   Repository : https://github.com/harrykhh/docling_surya
+#   Author     : Harry Ho (@harrykhh)
+#   License    : GPL-3.0
+#
+# The overall example structure — configuring OCR options, building a
+# PdfPipelineOptions with allow_external_plugins=True, creating a
+# DocumentConverter with format_options, and converting a sample EPA PDF —
+# is adapted from that reference script.
+#
 # What this example does
 # - Configures `AzureDocIntelOcrOptions` for OCR processing via Azure DI.
 # - Runs the PDF pipeline with Azure Document Intelligence and prints Markdown.
@@ -73,10 +83,7 @@ def main() -> None:
     )
 
     # Validate that we have at least an endpoint available
-    endpoint = (
-        args.endpoint
-        or os.environ.get("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
-    )
+    endpoint = args.endpoint or os.environ.get("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
     if not endpoint:
         print(
             "ERROR: No Azure Document Intelligence endpoint configured.\n"
