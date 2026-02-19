@@ -33,7 +33,7 @@ import logging
 import os
 from collections.abc import Iterable
 from pathlib import Path
-from typing import ClassVar, Literal, Optional, Type
+from typing import ClassVar, Literal
 
 from docling.datamodel.accelerator_options import AcceleratorOptions
 from docling.datamodel.base_models import Page
@@ -66,10 +66,10 @@ class AzureDocIntelOcrOptions(OcrOptions):
     kind: ClassVar[Literal["azure_di"]] = "azure_di"
 
     lang: list[str] = ["en"]
-    endpoint: Optional[str] = None
-    api_key: Optional[str] = None
+    endpoint: str | None = None
+    api_key: str | None = None
     model_id: str = "prebuilt-read"
-    locale: Optional[str] = None  # e.g. "en-US", None = auto-detect
+    locale: str | None = None  # e.g. "en-US", None = auto-detect
 
     model_config = {"extra": "forbid"}
 
@@ -83,7 +83,7 @@ class AzureDocIntelOcrModel(BaseOcrModel):
     def __init__(
         self,
         enabled: bool,
-        artifacts_path: Optional[Path],
+        artifacts_path: Path | None,
         options: AzureDocIntelOcrOptions,
         accelerator_options: AcceleratorOptions,
     ):
@@ -147,7 +147,7 @@ class AzureDocIntelOcrModel(BaseOcrModel):
     #  Static helper — no models to download for a cloud service
     # ------------------------------------------------------------------- #
     @staticmethod
-    def download_models(local_dir: Optional[Path] = None) -> Path:
+    def download_models(local_dir: Path | None = None) -> Path:
         """No-op: Azure DI is a cloud service with no local models."""
         if local_dir is None:
             local_dir = settings.cache_dir / "models" / "AzureDocIntel"
@@ -344,7 +344,7 @@ class AzureDocIntelOcrModel(BaseOcrModel):
 
     # ------------------------------------------------------------------- #
     @classmethod
-    def get_options_type(cls) -> Type[OcrOptions]:
+    def get_options_type(cls) -> type[OcrOptions]:
         return AzureDocIntelOcrOptions
 
 
